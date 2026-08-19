@@ -73,10 +73,71 @@ co.eci.snake
 ### 1) Análisis de concurrencia
 
 - Explica **cómo** el código usa hilos para dar autonomía a cada serpiente.
-- **Identifica** y documenta en **`el reporte de laboratorio`**:
+
+cada serpiente recibe su propio hilo y se ve en la parte del codigo.
+```java
+var exec = Executors.newVirtualThreadPerTaskExecutor();
+snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
+```
+y cada una de estas se ejecuta en su propio hilo virtual, independiente de las otras serpientes.
+
+En el SnakeRunner es donde se implementa un bucle para dar da autonomia a cada serpiente, como con el maybeTurn que hacen que gire sin depender de los otros.
+Los hilos solo comparten el tablero que es donde las serpientes consultan y modifican el tablero.
+
+
   - Posibles **condiciones de carrera**.
+
+**falta de un synchronized generando que no se synchronized**
+```java
+private final Deque<Position> body = new ArrayDeque<>();
+...
+public Deque<Position> snapshot() { return new ArrayDeque<>(body); }   // lee body
+public void advance(Position newHead, boolean grow) {                  // escribe body
+  body.addFirst(newHead);
+  ...
+  while (body.size() > maxLength) body.removeLast();
+}
+```
+se pueden presentar casos como que al comer se añada una cabeza, pero esta ya supero el maxLength y el GUI toma la captura pero al mismo tiempo,
+se le quita la cola entonces el visual esta mostrando algo que ya no existe.
+
+**Tenemos que se comparten variables sin dar una visibilidad**
+```java
+private int maxLength = 5;
+...
+if (grow) maxLength++;
+```
+ya que es una variable y esta no tiene visibilidad, si se leyera desde otro hilo, no sabremos si vera el
+valor mas grande reciente o uno desactualizado.
+
+**buena practica en voaltile de la clase SnakeRunner**
+
+ya que si ofrece una visibilidad inmediata, ya que cuando sobre escribe una **direction** todos los demas hilos pueden ver el cambio.
+Vemos que es atomica ya que la lectura y escritura de una referncia es atomica en java
+
+
   - **Colecciones** o estructuras **no seguras** en contexto concurrente.
+
+Este esta siendo modificada simultaneamente por otros hilos, no impide que ocurran condiciones de carrera. 
+```java
+public Deque<Position> snapshot() { return new ArrayDeque<>(body); }
+```
+tambien el maxLength que se vio y se explico en los puntos anteriores.
+
+
   - Ocurrencias de **espera activa** (busy-wait) o de sincronización innecesaria.
+
+En GameClock, ya que ejecuta una tarea cada 16ms y en ella se verifica constantemente si el estado es RUNNING,
+la espera activa esta en la linea del tick.run()
+```java
+public void start() {
+    if (state.compareAndSet(GameState.STOPPED, GameState.RUNNING)) {
+        scheduler.scheduleAtFixedRate(() -> {
+            if (state.get() == GameState.RUNNING) tick.run();
+        }, 0, periodMillis, TimeUnit.MILLISECONDS);
+    }
+}
+```
 
 ### 2) Correcciones mínimas y regiones críticas
 

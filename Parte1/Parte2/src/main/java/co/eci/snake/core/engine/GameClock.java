@@ -28,8 +28,21 @@ public final class GameClock implements AutoCloseable {
     }
   }
 
-  public void pause()  { state.set(GameState.PAUSED); }
-  public void resume() { state.set(GameState.RUNNING); }
+  public synchronized void pause()  { state.set(GameState.PAUSED); }
+  public synchronized void resume() {
+    state.set(GameState.RUNNING);
+    notifyAll(); //despierta a todas las serpientes
+  }
   public void stop()   { state.set(GameState.STOPPED); }
   @Override public void close() { scheduler.shutdownNow(); }
+
+  //el hilo se bloquea hasta que se despause quitando el busy-wait que teniamos
+  public void awaitRunning() throws InterruptedException {
+    synchronized (this) {
+      while (state.get() == GameState.PAUSED) {
+        wait();
+      }
+    }
+  }
+
 }

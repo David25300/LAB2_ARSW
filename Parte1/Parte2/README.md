@@ -145,6 +145,70 @@ public void start() {
 - Protege **solo** las **regiones críticas estrictamente necesarias** (evita bloqueos amplios).
 - Justifica en **`el reporte de laboratorio`** cada cambio: cuál era el riesgo y cómo lo resuelves.
 
+En **Snake** ya que estaban sin locks y no eran thread-safe, entonces la lectura y escritura concurrentes podian producir copias inesactas,
+serializa para una serpiente su hilo.
+
+```java
+public synchronized Position head() { return body.peekFirst(); }
+
+  public synchronized Deque<Position> snapshot() { return new ArrayDeque<>(body); }
+
+  public synchronized void advance(Position newHead, boolean grow) {
+    body.addFirst(newHead);
+    if (grow) maxLength++;
+    while (body.size() > maxLength) body.removeLast();
+  }
+}
+```
+
+En **Board** es necesario mantenerlo atomico que podrian dar una condicion carrera, ya que si se separan, permite que dos serpientes
+coman el mismo raton o pisen un obstaculo mientras se actualizan los estados de las serpientes
+
+```java
+synchronized (this) {
+      if (obstacles.contains(next)) return MoveResult.HIT_OBSTACLE;
+
+      if (teleports.containsKey(next)) {
+        next = teleports.get(next);
+        teleported = true;
+      }
+
+      ateMouse = mice.remove(next);
+      ateTurbo = turbo.remove(next);
+
+      if (ateMouse) {
+        mice.add(randomEmpty());
+        obstacles.add(randomEmpty());
+        if (ThreadLocalRandom.current().nextDouble() < 0.2) turbo.add(randomEmpty());
+      }
+    }
+```
+
+En **GameClock** por un lado tenemos la que despertara a las serpientes y en el otro creamos un método que será el punto de sincronización, 
+si el juego esta en PAUSED, el hilo se bloquea hasta que se da resume no como el pasado que solo se pausaba el repintado de 
+las serpientes y los hilos nunca tenían en cuenta este estad y se seguían moviendo.
+
+```java
+public synchronized void resume() {
+    state.set(GameState.RUNNING);
+    notifyAll();
+}
+
+public void awaitRunning() throws InterruptedException {
+    synchronized (this) {
+      while (state.get() == GameState.PAUSED) {
+        wait();
+      }
+    }
+  }
+```
+
+
+
+Se cambio y se añadio el clock porque el SnakeRunner necesita recibir el clock
+```java
+snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, clock)));
+```
 ### 3) Control de ejecución seguro (UI)
 
 - Implementa la **UI** con **Iniciar / Pausar / Reanudar** (ya existe el botón _Action_ y el reloj `GameClock`).

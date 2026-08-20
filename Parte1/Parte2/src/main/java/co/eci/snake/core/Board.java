@@ -42,24 +42,30 @@ public final class Board {
     var dir = snake.direction();
     Position next = new Position(head.x() + dir.dx, head.y() + dir.dy).wrap(width, height);
 
-    if (obstacles.contains(next)) return MoveResult.HIT_OBSTACLE;
-
-    boolean teleported = false;
-    if (teleports.containsKey(next)) {
-      next = teleports.get(next);
-      teleported = true;
-    }
-
     boolean ateMouse = mice.remove(next);
     boolean ateTurbo = turbo.remove(next);
+    boolean teleported = false;
 
-    snake.advance(next, ateMouse);
+    //es necesario mantenerlo atomico que podrian dar una condicion carrera
+    synchronized (this) {
+      if (obstacles.contains(next)) return MoveResult.HIT_OBSTACLE;
 
-    if (ateMouse) {
-      mice.add(randomEmpty());
-      obstacles.add(randomEmpty());
-      if (ThreadLocalRandom.current().nextDouble() < 0.2) turbo.add(randomEmpty());
+      if (teleports.containsKey(next)) {
+        next = teleports.get(next);
+        teleported = true;
+      }
+
+      ateMouse = mice.remove(next);
+      ateTurbo = turbo.remove(next);
+
+      if (ateMouse) {
+        mice.add(randomEmpty());
+        obstacles.add(randomEmpty());
+        if (ThreadLocalRandom.current().nextDouble() < 0.2) turbo.add(randomEmpty());
+      }
     }
+    //como este solo toca el estado propio de snake esta protegido
+    snake.advance(next, ateMouse);
 
     if (ateTurbo) return MoveResult.ATE_TURBO;
     if (ateMouse) return MoveResult.ATE_MOUSE;

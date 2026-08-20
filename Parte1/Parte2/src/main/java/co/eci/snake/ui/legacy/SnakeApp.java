@@ -26,7 +26,7 @@ public final class SnakeApp extends JFrame {
     super("The Snake Race");
     this.board = new Board(35, 28);
 
-    int N = Integer.getInteger("snakes", 2);
+    int N = Integer.getInteger("snakes", 5);
     for (int i = 0; i < N; i++) {
       int x = 2 + (i * 3) % board.width();
       int y = 2 + (i * 2) % board.height();
@@ -48,7 +48,8 @@ public final class SnakeApp extends JFrame {
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board)));
+    //Se cambio y se añadio el clock porque el SnakeRunner necesita recibir el clock
+    snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, clock)));
 
     actionButton.addActionListener((ActionEvent e) -> togglePause());
 

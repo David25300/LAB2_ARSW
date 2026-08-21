@@ -19,6 +19,7 @@ public final class SnakeApp extends JFrame {
   private final Board board;
   private final GamePanel gamePanel;
   private final JButton actionButton;
+  private final JLabel statsLabel;
   private final GameClock clock;
   private final java.util.List<Snake> snakes = new java.util.ArrayList<>();
 
@@ -26,7 +27,7 @@ public final class SnakeApp extends JFrame {
     super("The Snake Race");
     this.board = new Board(35, 28);
 
-    int N = Integer.getInteger("snakes", 5);
+    int N = Integer.getInteger("snakes", 50);
     for (int i = 0; i < N; i++) {
       int x = 2 + (i * 3) % board.width();
       int y = 2 + (i * 2) % board.height();
@@ -34,12 +35,20 @@ public final class SnakeApp extends JFrame {
       snakes.add(Snake.of(x, y, dir));
     }
 
+    board.setSnakes(snakes);
+
     this.gamePanel = new GamePanel(board, () -> snakes);
-    this.actionButton = new JButton("Action");
+    this.actionButton = new JButton("Iniciar");
+    this.statsLabel = new JLabel(" ");
+    statsLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+    var southPanel = new JPanel(new BorderLayout());
+    southPanel.add(actionButton, BorderLayout.NORTH);
+    southPanel.add(statsLabel, BorderLayout.SOUTH);
 
     setLayout(new BorderLayout());
     add(gamePanel, BorderLayout.CENTER);
-    add(actionButton, BorderLayout.SOUTH);
+    add(southPanel, BorderLayout.SOUTH);
 
     setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     pack();
@@ -48,16 +57,15 @@ public final class SnakeApp extends JFrame {
     this.clock = new GameClock(60, () -> SwingUtilities.invokeLater(gamePanel::repaint));
 
     var exec = Executors.newVirtualThreadPerTaskExecutor();
-    //Se cambio y se añadio el clock porque el SnakeRunner necesita recibir el clock
     snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, clock)));
 
-    actionButton.addActionListener((ActionEvent e) -> togglePause());
+    actionButton.addActionListener((ActionEvent e) -> onActionButton());
 
     gamePanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("SPACE"), "pause");
     gamePanel.getActionMap().put("pause", new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent e) {
-        togglePause();
+        onActionButton();
       }
     });
 
@@ -126,17 +134,63 @@ public final class SnakeApp extends JFrame {
     }
 
     setVisible(true);
-    clock.start();
+
   }
 
-  private void togglePause() {
-    if ("Action".equals(actionButton.getText())) {
-      actionButton.setText("Resume");
-      clock.pause();
-    } else {
-      actionButton.setText("Action");
-      clock.resume();
+  private void onActionButton() {
+    switch (clock.state()) {
+      case STOPPED -> {
+        clock.start();
+        actionButton.setText("Pausar");
+      }
+      case RUNNING -> {
+        clock.pause();
+        actionButton.setText("Reanudar");
+        actionButton.setEnabled(false);
+        statsLabel.setText("Pausando...");
+        awaitPauseAndShowStats();
+      }
+      case PAUSED -> {
+        clock.resume();
+        actionButton.setText("Pausar");
+        statsLabel.setText(" ");
+      }
     }
+  }
+
+
+  private void awaitPauseAndShowStats() {
+    Thread.ofVirtual().start(() -> {
+      try {
+        clock.awaitAllPaused();
+        String stats = renderStats();
+        SwingUtilities.invokeLater(() -> {
+          statsLabel.setText(stats);
+          actionButton.setEnabled(true);
+        });
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+      }
+    });
+  }
+
+  private String renderStats() {
+    Snake longestAlive = null;
+    Snake firstDead = null;
+    for (Snake s : snakes) {
+      if (s.isAlive()) {
+        if (longestAlive == null || s.length() > longestAlive.length()) longestAlive = s;
+      } else if (firstDead == null || s.diedAtNanos() < firstDead.diedAtNanos()) {
+        firstDead = s;
+      }
+    }
+    String longestText = (longestAlive == null)
+            ? "Más larga viva: (ninguna sigue viva)"
+            : "Más larga viva: Serpiente #%d (%d)".formatted(snakes.indexOf(longestAlive), longestAlive.length());
+    String worstText = (firstDead == null)
+            ? "Peor serpiente: (ninguna ha muerto todavía)"
+            : "Peor serpiente (murió primero): Serpiente #%d".formatted(snakes.indexOf(firstDead));
+    return "<html>" + longestText + " &nbsp;|&nbsp; " + worstText + "</html>";
   }
 
   public static final class GamePanel extends JPanel {
@@ -168,7 +222,6 @@ public final class SnakeApp extends JFrame {
       for (int y = 0; y <= board.height(); y++)
         g2.drawLine(0, y * cell, board.width() * cell, y * cell);
 
-      // Obstáculos
       g2.setColor(new Color(255, 102, 0));
       for (var p : board.obstacles()) {
         int x = p.x() * cell, y = p.y() * cell;
@@ -180,7 +233,7 @@ public final class SnakeApp extends JFrame {
         g2.setColor(new Color(255, 102, 0));
       }
 
-      // Ratones
+
       g2.setColor(Color.BLACK);
       for (var p : board.mice()) {
         int x = p.x() * cell, y = p.y() * cell;
@@ -190,7 +243,6 @@ public final class SnakeApp extends JFrame {
         g2.setColor(Color.BLACK);
       }
 
-      // Teleports (flechas rojas)
       Map<Position, Position> tp = board.teleports();
       g2.setColor(Color.RED);
       for (var entry : tp.entrySet()) {
@@ -201,7 +253,6 @@ public final class SnakeApp extends JFrame {
         g2.fillPolygon(xs, ys, xs.length);
       }
 
-      // Turbo (rayos)
       g2.setColor(Color.BLACK);
       for (var p : board.turbo()) {
         int x = p.x() * cell, y = p.y() * cell;
@@ -210,19 +261,23 @@ public final class SnakeApp extends JFrame {
         g2.fillPolygon(xs, ys, xs.length);
       }
 
-      // Serpientes
       var snakes = snakesSupplier.get();
       int idx = 0;
       for (Snake s : snakes) {
+        //dibujar si está viva
+        if (!s.isAlive()) {
+          idx++;
+          continue;
+        }
         var body = s.snapshot().toArray(new Position[0]);
         for (int i = 0; i < body.length; i++) {
           var p = body[i];
           Color base = (idx == 0) ? new Color(0, 170, 0) : new Color(0, 160, 180);
           int shade = Math.max(0, 40 - i * 4);
           g2.setColor(new Color(
-              Math.min(255, base.getRed() + shade),
-              Math.min(255, base.getGreen() + shade),
-              Math.min(255, base.getBlue() + shade)));
+                  Math.min(255, base.getRed() + shade),
+                  Math.min(255, base.getGreen() + shade),
+                  Math.min(255, base.getBlue() + shade)));
           g2.fillRect(p.x() * cell + 2, p.y() * cell + 2, cell - 4, cell - 4);
         }
         idx++;
@@ -234,4 +289,5 @@ public final class SnakeApp extends JFrame {
   public static void launch() {
     SwingUtilities.invokeLater(SnakeApp::new);
   }
+
 }

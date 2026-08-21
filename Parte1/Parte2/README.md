@@ -1,73 +1,5 @@
 # Snake Race — ARSW Lab #2 (Java 21, Virtual Threads)
 
-**Escuela Colombiana de Ingeniería – Arquitecturas de Software**  
-Laboratorio de programación concurrente: condiciones de carrera, sincronización y colecciones seguras.
-
----
-
-## Requisitos
-
-- **JDK 21** (Temurin recomendado)
-- **Maven 3.9+**
-- SO: Windows, macOS o Linux
-
----
-
-## Cómo ejecutar
-
-```bash
-mvn clean verify
-mvn -q -DskipTests exec:java -Dsnakes=4
-```
-
-- `-Dsnakes=N` → inicia el juego con **N** serpientes (por defecto 2).
-- **Controles**:
-  - **Flechas**: serpiente **0** (Jugador 1).
-  - **WASD**: serpiente **1** (si existe).
-  - **Espacio** o botón **Action**: Pausar / Reanudar.
-
----
-
-## Reglas del juego (resumen)
-
-- **N serpientes** corren de forma autónoma (cada una en su propio hilo).
-- **Ratones**: al comer uno, la serpiente **crece** y aparece un **nuevo obstáculo**.
-- **Obstáculos**: si la cabeza entra en un obstáculo hay **rebote**.
-- **Teletransportadores** (flechas rojas): entrar por uno te **saca por su par**.
-- **Rayos (Turbo)**: al pisarlos, la serpiente obtiene **velocidad aumentada** temporal.
-- Movimiento con **wrap-around** (el tablero “se repite” en los bordes).
-
----
-
-## Arquitectura (carpetas)
-
-```
-co.eci.snake
-├─ app/                 # Bootstrap de la aplicación (Main)
-├─ core/                # Dominio: Board, Snake, Direction, Position
-├─ core/engine/         # GameClock (ticks, Pausa/Reanudar)
-├─ concurrency/         # SnakeRunner (lógica por serpiente con virtual threads)
-└─ ui/legacy/           # UI estilo legado (Swing) con grilla y botón Action
-```
-
----
-
-# Actividades del laboratorio
-
-## Parte I — (Calentamiento) `wait/notify` en un programa multi-hilo
-
-1. Toma el programa [**PrimeFinder**](https://github.com/ARSW-ECI/wait-notify-excercise).
-2. Modifícalo para que **cada _t_ milisegundos**:
-   - Se **pausen** todos los hilos trabajadores.
-   - Se **muestre** cuántos números primos se han encontrado.
-   - El programa **espere ENTER** para **reanudar**.
-3. La sincronización debe usar **`synchronized`**, **`wait()`**, **`notify()` / `notifyAll()`** sobre el **mismo monitor** (sin _busy-waiting_).
-4. Entrega en el reporte de laboratorio **las observaciones y/o comentarios** explicando tu diseño de sincronización (qué lock, qué condición, cómo evitas _lost wakeups_).
-
-> Objetivo didáctico: practicar suspensión/continuación **sin** espera activa y consolidar el modelo de monitores en Java.
-
----
-
 ## Parte II — SnakeRace concurrente (núcleo del laboratorio)
 
 ### 1) Análisis de concurrencia
@@ -203,12 +135,13 @@ public void awaitRunning() throws InterruptedException {
   }
 ```
 
-
-
 Se cambio y se añadio el clock porque el SnakeRunner necesita recibir el clock
+
 ```java
 snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, clock)));
 ```
+
+
 ### 3) Control de ejecución seguro (UI)
 
 - Implementa la **UI** con **Iniciar / Pausar / Reanudar** (ya existe el botón _Action_ y el reloj `GameClock`).
@@ -217,35 +150,97 @@ snakes.forEach(s -> exec.submit(new SnakeRunner(s, board, clock)));
   - La **peor serpiente** (la que **primero murió**).
 - Considera que la suspensión **no es instantánea**; coordina para que el estado mostrado no quede “a medias”.
 
+En **Snake** primero indicamos si la serpiente esta viva, en el otro vemos que almacenara el momento exacto de la muerte y el valor -1 es que aun no ha muerto
+```Java
+  private volatile boolean paused = true;
+  private volatile long diedAtNanos = -1;
+```
+
+verifica si la serpiente chocara con la exepcion de que si come y ya no puede crecer la cola ya no esta por ende la cabeza puede ocupar ese lugar.
+y si la serpiente esta muerta
+
+```Java
+
+public synchronized boolean collidesWithSelf(Position next, boolean growing) {
+    if (!growing && body.size() > 1 && next.equals(body.peekLast())) {
+        return false;
+    }
+    return body.contains(next);
+}
+
+public boolean isAlive() {return alive;}
+
+public long diedAtNanos() {return diedAtNanos; }
+
+public void die(){
+    if (alive) {
+        alive = false;
+        diedAtNanos = System.nanoTime();
+    }
+}
+```
+En **Board** vemos cuando la serpiente tenga una colision con su propia cola.
+La colision con otras serpientes
+
+```java
+if (snake.collidesWithSelf(next, ateMouse)){
+      snake.die();
+      return MoveResult.DIED;
+    }
+
+
+            if (collidesWithOtherSnakes(next, snake)) {
+        snake.die();
+      return MoveResult.DIED;
+    }    
+```
+En **GameClock** se agrego para saber cuales serpientes estan vivas y tambien para la pausa.
+En la otra es la espera que bloquea el hilo hasta ver que todas las serpientes estan realmente pausadas
+
+```java
+private int activeRunners = 0;
+private int parkedRunners = 0;
+
+public synchronized void awaitAllPaused() throws InterruptedException {
+    while (!(state.get() == GameState.PAUSED && parkedRunners >= activeRunners)) {
+        wait();
+    }
+}
+```
+en **SnakeRunner** que indica que la serpiente murio, ya que necesita saber cuantas serpientes siguen vivas para confirmar
+cuando todas se detengan al pausar 
+
+```java
+if (res == Board.MoveResult.DIED){
+    break;//la serpiente murio
+} else if (res == Board.MoveResult.HIT_OBSTACLE) {
+randomTurn();
+```
+
+
 ### 4) Robustez bajo carga
 
 - Ejecuta con **N alto** (`-Dsnakes=20` o más) y/o aumenta la velocidad.
+
+primero probamos con 20 y todo sigue funcionando, tambien se probo con 50 y se presiono el boton de pausa y reanudar,
+para forzar que se presentaran casos en los que se descordinaran
+
 - El juego **no debe romperse**: sin `ConcurrentModificationException`, sin lecturas inconsistentes, sin _deadlocks_.
+
+No se puede romper ya que ninguno modifica una lista mientras que otro la esta leyendo com
+
+
+**El Board:** este solo devuelve copias, no el original que esta dentro de un bloque synchronized, esto la vulve segura.
+
+
+**El snapshot:** este devuelve una copia del cuerpo de la serpinete y esta protegido por el synchronized.
+
+
 - Si habilitas **teleports** y **turbo**, verifica que las reglas no introduzcan carreras.
 
-> Entregables detallados más abajo.
 
----
-
-## Entregables
-
-1. **Código fuente** funcionando en **Java 21**.
-2. Todo de manera clara en **`**el reporte de laboratorio**`** con:
-   - Data races encontradas y su solución.
-   - Colecciones mal usadas y cómo se protegieron (o sustituyeron).
-   - Esperas activas eliminadas y mecanismo utilizado.
-   - Regiones críticas definidas y justificación de su **alcance mínimo**.
-3. UI con **Iniciar / Pausar / Reanudar** y estadísticas solicitadas al pausar.
-
----
-
-## Criterios de evaluación (10)
-
-- (3) **Concurrencia correcta**: sin data races; sincronización bien localizada.
-- (2) **Pausa/Reanudar**: consistencia visual y de estado.
-- (2) **Robustez**: corre **con N alto** y sin excepciones de concurrencia.
-- (1.5) **Calidad**: estructura clara, nombres, comentarios; sin _code smells_ obvios.
-- (1.5) **Documentación**: **`reporte de laboratorio`** claro, reproducible;
+al probarlo con los test con las 50 serpientes, garantizamos que una alta frecuencia de interacciones con estos poderes,
+no se presentaron momentos en donde se rompiera el programa.
 
 ---
 

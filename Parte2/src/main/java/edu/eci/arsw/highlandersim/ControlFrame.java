@@ -200,7 +200,6 @@ class TextAreaUpdateReportCallback implements ImmortalUpdateReportCallback{
     public void processReport(String report) {
         ta.append(report);
 
-        //move scrollbar to the bottom
         javax.swing.SwingUtilities.invokeLater(new Runnable() {
             public void run() {
                 JScrollBar bar = jsp.getVerticalScrollBar();

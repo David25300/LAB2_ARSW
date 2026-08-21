@@ -12,8 +12,6 @@ import java.util.Random;
  * @author Santiago Cajamarca
  * @author Sebastian Gonzalez
  */
-
-
 public class Producer extends Thread {
 
     private final BlockingQueue<Integer> queue;

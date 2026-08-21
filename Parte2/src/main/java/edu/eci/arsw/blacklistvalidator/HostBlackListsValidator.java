@@ -31,10 +31,6 @@ public class HostBlackListsValidator {
      */
     public List<Integer> checkHost(String ipaddress, int n){
         
-        LinkedList<Integer> blackListOcurrences=new LinkedList<>();
-        
-        int ocurrencesCount=0;
-        
         HostBlacklistsDataSourceFacade skds=HostBlacklistsDataSourceFacade.getInstance();
 
         int totalServers=skds.getRegisteredServersCount();
@@ -45,6 +41,10 @@ public class HostBlackListsValidator {
         int chunk=total/n;
         int remainder=total%n;
 
+        //Estado compartido: todos los hilos detienen su busqueda cuando,
+        //en conjunto, se alcanza BLACK_LIST_ALARM_COUNT ocurrencias
+        SearchState searchState=new SearchState(BLACK_LIST_ALARM_COUNT);
+
         SearchThread[] threads=new SearchThread[n];
         int start=A;
 
@@ -53,7 +53,7 @@ public class HostBlackListsValidator {
             int extra=(i<remainder) ? 1 : 0;
             int end=start+chunk-1+extra;
 
-            threads[i]=new SearchThread(start, end, ipaddress);
+            threads[i]=new SearchThread(start, end, ipaddress, searchState);
             threads[i].start();
 
             start=end+1;
@@ -67,13 +67,10 @@ public class HostBlackListsValidator {
                 LOG.log(Level.SEVERE, e.getMessage());
             }
         }
-        //aqui sumamos las listas de cada hilo
-        int checkedListsCount=0;
-        for (int i=0;i<n;i++){
-            ocurrencesCount+=threads[i].getOcurrencesCount();
-            blackListOcurrences.addAll(threads[i].getBlackListOcurrences());
-            checkedListsCount+=threads[i].getCheckedListsCountThread();
-        }
+
+        LinkedList<Integer> blackListOcurrences=new LinkedList<>(searchState.getOccurrences());
+        int ocurrencesCount=searchState.getOccurrencesCount();
+        int checkedListsCount=searchState.getCheckedListsCount();
 
         if (ocurrencesCount>=BLACK_LIST_ALARM_COUNT){
             skds.reportAsNotTrustworthy(ipaddress);

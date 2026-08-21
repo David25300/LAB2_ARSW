@@ -138,6 +138,7 @@ synchronized (monitor) {
 
 Primero se elimina la condicion de pausa y luego notifyAll() despierta a todos los trabajadores que esperan sobre el monitor.
 
+
 Se utiliza notifyAll() porque existen varios trabajadores esperando. notify() podria despertar solamente a uno y dejar a los demas detenidos.
 
 ## 4. Prevencion de lost wakeups

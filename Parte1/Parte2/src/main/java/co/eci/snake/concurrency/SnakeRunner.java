@@ -3,6 +3,7 @@ package co.eci.snake.concurrency;
 import co.eci.snake.core.Board;
 import co.eci.snake.core.Direction;
 import co.eci.snake.core.Snake;
+import co.eci.snake.core.engine.GameClock;
 
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -12,19 +13,25 @@ public final class SnakeRunner implements Runnable {
   private final int baseSleepMs = 80;
   private final int turboSleepMs = 40;
   private int turboTicks = 0;
+  private final GameClock clock;
 
-  public SnakeRunner(Snake snake, Board board) {
+  public SnakeRunner(Snake snake, Board board, GameClock clock) {
     this.snake = snake;
     this.board = board;
+    this.clock = clock;
   }
 
   @Override
   public void run() {
+    clock.registerRunner();
     try {
       while (!Thread.currentThread().isInterrupted()) {
+        clock.awaitRunning();//aqui se bloque cuando este en pausa
         maybeTurn();
         var res = board.step(snake);
-        if (res == Board.MoveResult.HIT_OBSTACLE) {
+        if (res == Board.MoveResult.DIED){
+          break;//la serpiente murio
+        } else if (res == Board.MoveResult.HIT_OBSTACLE) {
           randomTurn();
         } else if (res == Board.MoveResult.ATE_TURBO) {
           turboTicks = 100;
@@ -35,6 +42,8 @@ public final class SnakeRunner implements Runnable {
       }
     } catch (InterruptedException ie) {
       Thread.currentThread().interrupt();
+    } finally {
+      clock.deregisterRunner();
     }
   }
 

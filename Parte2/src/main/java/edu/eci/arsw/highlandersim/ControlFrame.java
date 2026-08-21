@@ -2,8 +2,8 @@ package edu.eci.arsw.highlandersim;
 
 import java.awt.BorderLayout;
 import java.awt.EventQueue;
-import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import javax.swing.JFrame;
 import javax.swing.JPanel;
@@ -88,17 +88,33 @@ public class ControlFrame extends JFrame {
         btnPauseAndCheck.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
 
-                /*
-				 * COMPLETAR
-                 */
-                int sum = 0;
-                for (Immortal im : immortals) {
-                    sum += im.getHealth();
+                if (immortals == null) {
+                    return;
                 }
 
-                statisticsLabel.setText("<html>"+immortals.toString()+"<br>Health sum:"+ sum);
-                
-                
+                new Thread(new Runnable() {
+                    public void run() {
+                        for (Immortal im : immortals) {
+                            im.pause();
+                        }
+
+                        for (Immortal im : immortals) {
+                            im.awaitPause();
+                        }
+
+                        int sum = 0;
+                        for (Immortal im : immortals) {
+                            sum += im.getHealth();
+                        }
+
+                        final String stats = "<html>"+immortals.toString()+"<br>Health sum:"+ sum;
+                        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+                            public void run() {
+                                statisticsLabel.setText(stats);
+                            }
+                        });
+                    }
+                }).start();
 
             }
         });
@@ -108,9 +124,14 @@ public class ControlFrame extends JFrame {
 
         btnResume.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                /**
-                 * IMPLEMENTAR
-                 */
+
+                if (immortals == null) {
+                    return;
+                }
+
+                for (Immortal im : immortals) {
+                    im.unpause();
+                }
 
             }
         });
@@ -149,7 +170,7 @@ public class ControlFrame extends JFrame {
         try {
             int ni = Integer.parseInt(numOfImmortals.getText());
 
-            List<Immortal> il = new LinkedList<Immortal>();
+            List<Immortal> il = new CopyOnWriteArrayList<Immortal>();
 
             for (int i = 0; i < ni; i++) {
                 Immortal i1 = new Immortal("im" + i, il, DEFAULT_IMMORTAL_HEALTH, DEFAULT_DAMAGE_VALUE,ucb);

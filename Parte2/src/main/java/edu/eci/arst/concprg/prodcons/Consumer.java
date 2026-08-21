@@ -4,31 +4,39 @@
  * and open the template in the editor.
  */
 package edu.eci.arst.concprg.prodcons;
-
-import java.util.Queue;
-
+import java.util.concurrent.BlockingQueue;
 /**
  *
  * @author hcadavid
+ * @author Santiago Cajamarca
+ * @author Sebastian Gonzalez
  */
-public class Consumer extends Thread{
-    
-    private Queue<Integer> queue;
-    
-    
-    public Consumer(Queue<Integer> queue){
-        this.queue=queue;        
+public class Consumer extends Thread {
+
+    private final BlockingQueue<Integer> queue;
+
+    public Consumer(
+            BlockingQueue<Integer> queue
+    ) {
+        this.queue = queue;
     }
-    
+
     @Override
     public void run() {
-        while (true) {
+        while (!isInterrupted()) {
+            try {
+                Thread.sleep(1000);
 
-            if (queue.size() > 0) {
-                int elem=queue.poll();
-                System.out.println("Consumer consumes "+elem);                                
+                Integer element = queue.take();
+
+                System.out.println(
+                        "Consumer consumes " + element
+                                + " | Stock: " + queue.size()
+                );
+
+            } catch (InterruptedException ex) {
+                interrupt();
             }
-            
         }
     }
 }
